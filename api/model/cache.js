@@ -11,7 +11,14 @@ DataCache.checkDataAge = async () => {
     const updateInterval = 30; // define the update interval (in number of days)
 
     if (timeDiff > updateInterval || lastUpdateDate == null) {
-        await pool.query('DELETE from ottawa'); //delete existing records first
+        // await pool.query('DELETE from ottawa'); //delete existing records first
+
+        // problem - once the data is daleted all the existing ratings will be lost as well.
+        // need a different data structure or different way to update the database
+        // solution: INSERT new record and UPDATE existing records using ON CONFLICT, keep the last update on a seperate table
+        // solved;
+
+        
         let updateResult = await updateDb(); //call update function to update the database
         if (updateResult.status === "success") return { "status": "ready" };
     }
@@ -21,7 +28,7 @@ DataCache.checkDataAge = async () => {
 
 
 async function lastUpdate() {
-    const result = await pool.query("SELECT last_update FROM ottawa ORDER BY last_update desc LIMIT 1"); //sort by last updated date in desc order and get the first result.
+    const result = await pool.query("SELECT last_update FROM update_log ORDER BY last_update desc LIMIT 1"); //sort by last updated date in desc order and get the first result.
     let lastUpdated = result.rows == "" ? null : result.rows[0].last_update;
     return lastUpdated;
 }
@@ -35,14 +42,15 @@ async function updateDb() {
     queryResult2 = (await axios.get(query2)).data.features;
 
     results = [...queryResult1, ...queryResult2];
-    let today = new Date().toISOString().slice(0, 10)
-
+    let today = new Date();
     // console.log(today)
 
         try {
             results.forEach(async (park) =>{
-                let result = await pool.query ('INSERT INTO ottawa (parkid, park_info, last_update) VALUES ($1, $2, $3)', [JSON.stringify(park.id), JSON.stringify(park), today]);
+                let result = await pool.query ('INSERT INTO ottawa (parkid, park_info) VALUES ($1, $2) ON CONFLICT (parkid) DO NOTHING', [JSON.stringify(park.id), JSON.stringify(park)]);
             });
+
+            await pool.query('INSERT INTO update_log (last_update) VALUES ($1)', [today])
             return { "status": "success" };
         }
         catch (err) {
